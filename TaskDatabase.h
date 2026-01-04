@@ -63,6 +63,7 @@ public:
     int getPendingTaskCount();
     QMap<QString, int> getTaskCountByCategory(); // 按分类统计
     QMap<TaskPriority, int> getTaskCountByPriority(); // 按优先级统计
+    QSqlDatabase database() const { return m_db; }
 
 private:
     TaskDatabase(); // 私有构造（单例）
