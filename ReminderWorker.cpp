@@ -1,23 +1,36 @@
-// ReminderWorker.h
-#ifndef REMINDERWORKER_H
-#define REMINDERWORKER_H
+// ReminderWorker.cpp
+#include "ReminderWorker.h"
+#include <QTimer>
+#include <QDebug>
 
-#include <QThread>
-#include <QList>
-#include "TaskDatabase.h"
-
-class ReminderWorker : public QThread
+void ReminderWorker::run()
 {
-    Q_OBJECT
-signals:
-    // 发送提醒信号（任务列表）
-    void reminderTriggered(const QList<Task>& tasks);
+    m_running = true;
 
-protected:
-    void run() override; // 线程执行函数
+    while (m_running) {
+        // 获取待提醒任务
+        QList<Task> reminderTasks = TaskDatabase::getInstance()->getReminderTasks();
 
-private:
-    bool m_running = true; // 线程运行标志
-};
+        if (!reminderTasks.isEmpty()) {
+            // 发送提醒信号
+            emit reminderTriggered(reminderTasks);
+        }
 
-#endif // REMINDERWORKER_H
+        // 每分钟检查一次
+        QThread::sleep(60);
+    }
+}
+
+// 停止线程的方法
+void ReminderWorker::stop()
+{
+    m_running = false;
+}
+
+ReminderWorker::~ReminderWorker()
+{
+    if (isRunning()) {
+        stop();
+        wait();  // 等待线程结束
+    }
+}

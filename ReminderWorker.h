@@ -9,6 +9,12 @@
 class ReminderWorker : public QThread
 {
     Q_OBJECT
+public:
+    ReminderWorker() = default;
+    ~ReminderWorker() override;
+
+    void stop(); // 停止线程的方法
+
 signals:
     // 发送提醒信号（任务列表）
     void reminderTriggered(const QList<Task>& tasks);
