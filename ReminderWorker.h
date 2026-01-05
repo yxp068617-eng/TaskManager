@@ -1,4 +1,3 @@
-// ReminderWorker.h
 #ifndef REMINDERWORKER_H
 #define REMINDERWORKER_H
 

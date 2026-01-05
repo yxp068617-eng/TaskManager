@@ -1,4 +1,3 @@
-// ReminderWorker.cpp
 #include "ReminderWorker.h"
 #include <QTimer>
 #include <QDebug>

@@ -1,11 +1,14 @@
 #ifndef TASKDATABASE_H
 #define TASKDATABASE_H
 
+#include <QObject>
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QSqlError>
 #include <QDateTime>
 #include <QVariant>
+#include <QDebug>
+#include <QStandardPaths>
 
 // 任务优先级枚举
 enum TaskPriority {
@@ -36,8 +39,9 @@ class TaskDatabase : public QObject
 {
     Q_OBJECT
 public:
-    static TaskDatabase* getInstance(); // 单例模式
+    static TaskDatabase* getInstance();
     ~TaskDatabase();
+    QSqlDatabase getDatabaseConnection();
 
     // 初始化数据库（创建表）
     bool init();
@@ -61,14 +65,16 @@ public:
     int getTotalTaskCount();
     int getCompletedTaskCount();
     int getPendingTaskCount();
-    QMap<QString, int> getTaskCountByCategory(); // 按分类统计
-    QMap<TaskPriority, int> getTaskCountByPriority(); // 按优先级统计
-    QSqlDatabase database() const { return m_db; }
+    QMap<QString, int> getTaskCountByCategory();
+    QMap<TaskPriority, int> getTaskCountByPriority();
 
 private:
-    TaskDatabase(); // 私有构造（单例）
-    QSqlDatabase m_db;
+    TaskDatabase();
     static TaskDatabase* m_instance;
+    // 私有辅助方法
+    QSqlDatabase createDatabaseConnection();
+    bool executeQuery(QSqlQuery &query, const QString &queryString);
+    QString getDatabasePath();
 };
 
 #endif // TASKDATABASE_H
