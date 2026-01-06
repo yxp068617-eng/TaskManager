@@ -20,7 +20,7 @@ ExportManager::ExportManager(QObject *parent)
 
 bool ExportManager::exportToExcel(const QString& filePath)
 {
-    // 1. 数据库实例检查（不变）
+    // 数据库实例检查
     TaskDatabase* db = TaskDatabase::getInstance();
     if (!db) {
         qCritical() << "Excel导出失败：数据库实例为空";
@@ -29,48 +29,80 @@ bool ExportManager::exportToExcel(const QString& filePath)
     QList<Task> tasks = db->getAllTasks();
     QList<Category> categories = db->getAllCategories();
 
-    // 2. 分类映射构建（不变）
+    //分类映射构建
     QMap<int, QString> categoryMap;
     for (const Category& cat : categories) {
         categoryMap[cat.id] = cat.name;
     }
 
-    // 3. Excel 写入核心逻辑（新形式，修复类型转换）
+    //Excel 写入核心逻辑
     QXlsx::Document xlsx;
-    xlsx.addSheet("任务列表");
-    xlsx.addSheet("统计报表");
 
-    // 3.1 填充任务列表（显式转 QVariant）
+    // 填充任务列表
+    xlsx.addSheet("任务列表");
+    xlsx.selectSheet("任务列表");
+
+    //表头
     QStringList taskHeaders = {"ID", "任务标题", "描述", "分类", "优先级", "截止时间", "完成状态", "创建时间"};
     for (int col = 0; col < taskHeaders.size(); col++) {
-        xlsx.write(1, col + 1, QVariant(taskHeaders[col])); // 表头修复
+        xlsx.write(1, col + 1, taskHeaders[col]); // 第1行是表头
     }
+
+    // 任务数据
     for (int row = 0; row < tasks.size(); row++) {
         const Task& task = tasks[row];
         QString categoryName = categoryMap.value(task.categoryId, "未分类");
         QString priorityText = (task.priority == Low) ? "低" : (task.priority == Medium) ? "中" : "高";
         QString completedText = task.isCompleted ? "已完成" : "未完成";
-        int excelRow = row + 2;
+        int excelRow = row + 2; // 从第2行开始数据
 
-        // 数据写入修复（所有字符串转 QVariant）
-        xlsx.write(excelRow, 1, task.id); // int 无需转换
-        xlsx.write(excelRow, 2, QVariant(task.title));
-        xlsx.write(excelRow, 3, QVariant(task.description));
-        xlsx.write(excelRow, 4, QVariant(categoryName));
-        xlsx.write(excelRow, 5, QVariant(priorityText));
-        xlsx.write(excelRow, 6, task.deadline); // 直接传 QDateTime，Excel 自动识别
-        xlsx.write(excelRow, 7, QVariant(completedText));
-        xlsx.write(excelRow, 8, task.createTime); // 直接传 QDateTime
+        xlsx.write(excelRow, 1, task.id);
+        xlsx.write(excelRow, 2, task.title);
+        xlsx.write(excelRow, 3, task.description);
+        xlsx.write(excelRow, 4, categoryName);
+        xlsx.write(excelRow, 5, priorityText);
+        xlsx.write(excelRow, 6, task.deadline);
+        xlsx.write(excelRow, 7, completedText);
+        xlsx.write(excelRow, 8, task.createTime);
     }
 
-    // 3.2 填充统计报表（同理修复）
+    //填充统计报表
+    xlsx.addSheet("统计报表");
     xlsx.selectSheet("统计报表");
-    xlsx.write(1, 1, QVariant("个人任务管理统计报表"));
-    xlsx.write(3, 1, QVariant("统计时间："));
-    xlsx.write(3, 2, QDateTime::currentDateTime()); // 直接传 QDateTime
-    // ... 其他统计项均补充 QVariant 转换 ...
 
-    // 4. 路径检查与保存（不变）
+    // 统计报表内容
+    xlsx.write(1, 1, "个人任务管理统计报表");
+    xlsx.write(2, 1, "统计时间：");
+    xlsx.write(2, 2, QDateTime::currentDateTime());
+
+    // 添加更多统计信息
+    xlsx.write(4, 1, "总任务数：");
+    xlsx.write(4, 2, db->getTotalTaskCount());
+    xlsx.write(5, 1, "已完成任务数：");
+    xlsx.write(5, 2, db->getCompletedTaskCount());
+    xlsx.write(6, 1, "待完成任务数：");
+    xlsx.write(6, 2, db->getPendingTaskCount());
+
+    // 按分类统计
+    xlsx.write(8, 1, "按分类统计：");
+    QMap<QString, int> catCount = db->getTaskCountByCategory();
+    int catRow = 9;
+    for (auto it = catCount.begin(); it != catCount.end(); ++it, ++catRow) {
+        xlsx.write(catRow, 1, it.key());
+        xlsx.write(catRow, 2, it.value());
+    }
+
+    // 按优先级统计
+    xlsx.write(catRow + 2, 1, "按优先级统计：");
+    QMap<TaskPriority, int> priCount = db->getTaskCountByPriority();
+    xlsx.write(catRow + 3, 1, "低优先级：");
+    xlsx.write(catRow + 3, 2, priCount[Low]);
+    xlsx.write(catRow + 4, 1, "中优先级：");
+    xlsx.write(catRow + 4, 2, priCount[Medium]);
+    xlsx.write(catRow + 5, 1, "高优先级：");
+    xlsx.write(catRow + 5, 2, priCount[High]);
+
+    // 4. 路径检查与保存
     QFileInfo fileInfo(filePath);
     if (!fileInfo.dir().exists()) {
         if (!QDir().mkpath(fileInfo.dir().path())) {
@@ -78,10 +110,12 @@ bool ExportManager::exportToExcel(const QString& filePath)
             return false;
         }
     }
+
     if (!xlsx.saveAs(filePath)) {
         qCritical() << "Excel导出失败：" << filePath;
         return false;
     }
+
     qInfo() << "Excel导出成功：" << filePath;
     return true;
 }
@@ -92,11 +126,11 @@ bool ExportManager::exportToPdf(const QString& filePath)
     printer.setOutputFormat(QPrinter::PdfFormat);
     printer.setOutputFileName(filePath);
 
-    // 设置纸张大小（Qt6 方式）
+    // 设置纸张大小
     printer.setPageSize(QPageSize(QPageSize::A4));
 
-    // 设置页边距（Qt6 方式）
-    QMarginsF margins(20, 20, 20, 20); // 单位：毫米
+    // 设置页边距
+    QMarginsF margins(20, 20, 20, 20);
     printer.setPageMargins(margins, QPageLayout::Millimeter);
 
     QTextDocument doc;

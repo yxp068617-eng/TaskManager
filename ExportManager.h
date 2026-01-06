@@ -5,9 +5,7 @@
 #include <QString>
 #include "TaskDatabase.h"
 
-// QXlsx 在 Qt6 中可能有不同的头文件包含方式
-#include <xlsxdocument.h>
-#include <xlsxworksheet.h>
+// 删除重复的头文件包含
 #include <xlsxdocument.h>
 #include <xlsxworksheet.h>
 
@@ -17,14 +15,10 @@ class ExportManager : public QObject
 public:
     explicit ExportManager(QObject *parent = nullptr);
 
-    // 导出Excel报表（任务列表 + 统计数据）
     bool exportToExcel(const QString& filePath);
-
-    // 导出PDF报表（任务列表 + 统计数据）
     bool exportToPdf(const QString& filePath);
 
 private:
-    // 生成统计文本
     QString generateStatText();
 };
 

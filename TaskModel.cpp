@@ -4,11 +4,20 @@
 TaskModel::TaskModel(QObject *parent, QSqlDatabase db)
     : QSqlRelationalTableModel(parent, db)
 {
-    // 设置关联表（任务表与分类表）
     setTable("tasks");
-    setRelation(3, QSqlRelation("categories", "id", "name")); // 第3列（category_id）关联分类表名称
+    setRelation(3, QSqlRelation("categories", "id", "name")); // category_id列
+
+    // 列头名称
+    setHeaderData(0, Qt::Horizontal, tr("ID"));
+    setHeaderData(1, Qt::Horizontal, tr("任务标题"));
+    setHeaderData(2, Qt::Horizontal, tr("任务描述"));
+    setHeaderData(3, Qt::Horizontal, tr("分类"));
+    setHeaderData(4, Qt::Horizontal, tr("优先级"));
+    setHeaderData(5, Qt::Horizontal, tr("截止时间"));
+    setHeaderData(6, Qt::Horizontal, tr("完成状态"));
+    setHeaderData(7, Qt::Horizontal, tr("创建时间"));
     setSort(5, Qt::AscendingOrder); // 按截止时间升序排序
-    select(); // 加载数据
+    select();
 }
 
 QVariant TaskModel::data(const QModelIndex &index, int role) const
@@ -17,33 +26,38 @@ QVariant TaskModel::data(const QModelIndex &index, int role) const
         return QVariant();
     }
 
-    // 优先级列（第4列）：显示中文
-    if (index.column() == 4 && role == Qt::DisplayRole) {
-        int priority = QSqlRelationalTableModel::data(index, Qt::DisplayRole).toInt();
+    int column = index.column();
+
+    // 优先级：显示中文
+    if (column == 4 && role == Qt::DisplayRole) {
+        QModelIndex sourceIndex = this->index(index.row(), 4); // 注意：这里是优先级列的原始索引
+        int priority = QSqlRelationalTableModel::data(sourceIndex, Qt::DisplayRole).toInt();
         return priorityToText(static_cast<TaskPriority>(priority));
     }
 
-    // 完成状态列（第6列）：显示"已完成"/"未完成"，且已完成项标灰
-    if (index.column() == 6) {
-        bool isCompleted = QSqlRelationalTableModel::data(index, Qt::DisplayRole).toBool();
+    // 分类列：显示分类名称
+    if (column == 3 && role == Qt::DisplayRole) {
+        return QSqlRelationalTableModel::data(index, role);
+    }
+
+    // 完成状态列：显示"已完成"/"未完成"
+    if (column == 6) {
         if (role == Qt::DisplayRole) {
-            return isCompleted ? "已完成" : "未完成";
+            bool isCompleted = QSqlRelationalTableModel::data(index, Qt::DisplayRole).toBool();
+            return isCompleted ? tr("已完成") : tr("未完成");
         }
-        if (role == Qt::ForegroundRole && isCompleted) {
-            return QBrush(QColor(128, 128, 128)); // 已完成项灰色
+        if (role == Qt::ForegroundRole) {
+            bool isCompleted = QSqlRelationalTableModel::data(index, Qt::DisplayRole).toBool();
+            if (isCompleted) {
+                return QBrush(QColor(128, 128, 128)); // 已完成项灰色
+            }
         }
     }
 
-    // 截止时间列（第5列）：格式化时间显示
-    if (index.column() == 5 && role == Qt::DisplayRole) {
-        QDateTime deadline = QSqlRelationalTableModel::data(index, Qt::DisplayRole).toDateTime();
-        return deadline.toString("yyyy-MM-dd HH:mm");
-    }
-
-    // 创建时间列（第7列）：格式化时间显示
-    if (index.column() == 7 && role == Qt::DisplayRole) {
-        QDateTime createTime = QSqlRelationalTableModel::data(index, Qt::DisplayRole).toDateTime();
-        return createTime.toString("yyyy-MM-dd HH:mm");
+    // 截止时间和创建时间列：格式化显示
+    if ((column == 5 || column == 7) && role == Qt::DisplayRole) {
+        QDateTime dateTime = QSqlRelationalTableModel::data(index, Qt::DisplayRole).toDateTime();
+        return dateTime.toString("yyyy-MM-dd HH:mm");
     }
 
     return QSqlRelationalTableModel::data(index, role);

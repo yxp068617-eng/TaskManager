@@ -13,7 +13,6 @@ TaskDatabase::TaskDatabase() : QObject()
 
 TaskDatabase::~TaskDatabase()
 {
-    // 清理所有数据库连接3
     QStringList connections = QSqlDatabase::connectionNames();
     for (const QString& connection : connections) {
         if (connection.startsWith("TaskDBConnection_")) {
@@ -48,34 +47,38 @@ QString TaskDatabase::getDatabasePath()
 
 QSqlDatabase TaskDatabase::createDatabaseConnection()
 {
-    QString connectionName = QString("TaskDBConnection_%1").arg((quintptr)QThread::currentThreadId());
+    //使用线程唯一的连接名
+    QString connectionName = "TaskDB_" + QString::number((quintptr)QThread::currentThreadId());
 
-    // 如果连接已存在，检查是否有效
+    // 如果连接已存在，直接返回
     if (QSqlDatabase::contains(connectionName)) {
-        QSqlDatabase existingDb = QSqlDatabase::database(connectionName);
-        if (existingDb.isOpen()) {
-            return existingDb;
-        } else {
-            // 如果连接存在但未打开，移除后重建
-            qWarning() << "移除无效的数据库连接：" << connectionName;
-            QSqlDatabase::removeDatabase(connectionName);
+        QSqlDatabase db = QSqlDatabase::database(connectionName);
+        // 如果连接已关闭，重新打开
+        if (!db.isOpen()) {
+            if (!db.open()) {
+                qCritical() << "重新打开数据库连接失败：" << db.lastError().text();
+            }
         }
+        return db;
     }
 
-    // 创建新连接
+    // 连接不存在，创建新连接
     QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
-    db.setDatabaseName(getDatabasePath());
+    QString dbPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/task_manager.db";
+    db.setDatabaseName(dbPath);
 
-    if (!db.open()) {
-        qCritical() << "无法打开数据库连接：" << db.lastError().text();
-        qCritical() << "数据库错误类型：" << db.lastError().type();
-        qCritical() << "数据库路径：" << getDatabasePath();
-        // 不要返回无效的连接
-        QSqlDatabase::removeDatabase(connectionName);
-        return QSqlDatabase(); // 返回空连接
+    // 确保目录存在
+    QDir dir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation));
+    if (!dir.exists()) {
+        dir.mkpath(".");
     }
 
-    qDebug() << "数据库连接成功：" << connectionName;
+    // 打开数据库并检查
+    if (!db.open()) {
+        qCritical() << "数据库连接失败：" << db.lastError().text();
+        qCritical() << "数据库路径：" << dbPath;
+    }
+
     return db;
 }
 
@@ -170,7 +173,6 @@ QList<Category> TaskDatabase::getAllCategories()
     QSqlQuery query("SELECT id, name FROM categories ORDER BY id", db);
     if (!query.exec()) {
         qCritical() << "查询分类失败：" << query.lastError().text();
-        db.close();
         return categories;
     }
 
@@ -180,8 +182,6 @@ QList<Category> TaskDatabase::getAllCategories()
         cat.name = query.value(1).toString();
         categories.append(cat);
     }
-
-    db.close();
     return categories;
 }
 
@@ -201,8 +201,6 @@ bool TaskDatabase::addCategory(const QString& name)
     if (!success) {
         qCritical() << "添加分类失败：" << query.lastError().text();
     }
-
-    db.close();
     return success;
 }
 
@@ -222,8 +220,6 @@ bool TaskDatabase::deleteCategory(int categoryId)
     if (!success) {
         qCritical() << "删除分类失败：" << query.lastError().text();
     }
-
-    db.close();
     return success;
 }
 
@@ -237,10 +233,9 @@ QList<Task> TaskDatabase::getAllTasks()
         return tasks;
     }
 
-    QSqlQuery query("SELECT id, title, description, category_id, priority, deadline, is_completed, create_time FROM tasks ORDER BY deadline", db);
+    QSqlQuery query("SELECT id, title, description, category_id, priority, deadline, completed, create_time FROM tasks ORDER BY deadline", db);
     if (!query.exec()) {
         qCritical() << "查询任务失败：" << query.lastError().text();
-        db.close();
         return tasks;
     }
 
@@ -256,35 +251,20 @@ QList<Task> TaskDatabase::getAllTasks()
         task.createTime = query.value(7).toDateTime();
         tasks.append(task);
     }
-
-    db.close();
     return tasks;
 }
 
-// TaskDatabase.cpp
 bool TaskDatabase::addTask(const Task& task)
 {
-    // 1. 打开数据库（直接使用默认连接或指定路径）
-    QSqlDatabase db = QSqlDatabase::database(); // 使用默认连接
-    if (!db.isValid()) {
-        // 如果默认连接不存在，就创建一个
-        db = QSqlDatabase::addDatabase("QSQLITE");
-        QString dbPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/task_manager.db";
-        db.setDatabaseName(dbPath);
-    }
-
+    QSqlDatabase db = createDatabaseConnection();
     if (!db.isOpen()) {
-        if (!db.open()) {
-            qCritical() << "无法打开数据库：" << db.lastError().text();
-            return false;
-        }
+        qWarning() << "添加任务失败：数据库未打开";
+        return false;
     }
 
-    // 2. 设置 createTime 为当前时间
     Task newTask = task;
     newTask.createTime = QDateTime::currentDateTime();
 
-    // 3. 准备 SQL
     QSqlQuery query(db);
     QString insertSQL = R"(
         INSERT INTO tasks (title, description, category_id, priority, deadline, completed, create_time)
@@ -293,30 +273,21 @@ bool TaskDatabase::addTask(const Task& task)
 
     if (!query.prepare(insertSQL)) {
         qCritical() << "SQL准备失败：" << query.lastError().text();
-        db.close();
         return false;
     }
 
-    // 4. 绑定参数
-    query.bindValue(":title",       newTask.title);
-    query.bindValue(":desc",        newTask.description);
-    query.bindValue(":cat_id",      newTask.categoryId);
-    query.bindValue(":priority",    static_cast<int>(newTask.priority));
-    query.bindValue(":deadline",    newTask.deadline);
-    query.bindValue(":completed",   newTask.isCompleted);
+    query.bindValue(":title", newTask.title);
+    query.bindValue(":desc", newTask.description);
+    query.bindValue(":cat_id", newTask.categoryId > 0 ? QVariant(newTask.categoryId) : QVariant());
+    query.bindValue(":priority", static_cast<int>(newTask.priority));
+    query.bindValue(":deadline", newTask.deadline);
+    query.bindValue(":completed", newTask.isCompleted);
     query.bindValue(":create_time", newTask.createTime);
 
-    // 5. 执行
     bool success = query.exec();
     if (!success) {
         qCritical() << "SQL执行失败：" << query.lastError().text();
-        qCritical() << "SQL错误类型：" << query.lastError().type();
-        qCritical() << "SQL错误号：" << query.lastError().nativeErrorCode();
     }
-
-    // 6. 关闭数据库（可选，但建议在函数结束时关闭，避免锁文件）
-    db.close();
-
     return success;
 }
 
@@ -329,26 +300,32 @@ bool TaskDatabase::updateTask(const Task& task)
     }
 
     QSqlQuery query(db);
+
     query.prepare(R"(
-        UPDATE tasks SET title = :title, description = :desc, category_id = :cat_id,
-        priority = :priority, deadline = :deadline, is_completed = :completed
+        UPDATE tasks
+        SET title = :title,
+            description = :desc,
+            category_id = :cat_id,
+            priority = :priority,
+            deadline = :deadline,
+            completed = :completed
         WHERE id = :id
     )");
+
     query.bindValue(":title", task.title);
     query.bindValue(":desc", task.description);
-    query.bindValue(":cat_id", task.categoryId);
+    query.bindValue(":cat_id", task.categoryId > 0 ? QVariant(task.categoryId) : QVariant());
     query.bindValue(":priority", task.priority);
     query.bindValue(":deadline", task.deadline);
     query.bindValue(":completed", task.isCompleted);
     query.bindValue(":id", task.id);
 
-    bool success = query.exec();
-    if (!success) {
+    if (!query.exec()) {
         qCritical() << "更新任务失败：" << query.lastError().text();
+        return false;
     }
 
-    db.close();
-    return success;
+    return true;
 }
 
 bool TaskDatabase::deleteTask(int taskId)
@@ -367,10 +344,9 @@ bool TaskDatabase::deleteTask(int taskId)
     if (!success) {
         qCritical() << "删除任务失败：" << query.lastError().text();
     }
-
-    db.close();
     return success;
 }
+
 
 bool TaskDatabase::markTaskCompleted(int taskId, bool isCompleted)
 {
@@ -381,7 +357,7 @@ bool TaskDatabase::markTaskCompleted(int taskId, bool isCompleted)
     }
 
     QSqlQuery query(db);
-    query.prepare("UPDATE tasks SET is_completed = :completed WHERE id = :id");
+        query.prepare("UPDATE tasks SET completed = :completed WHERE id = :id");
     query.bindValue(":completed", isCompleted);
     query.bindValue(":id", taskId);
 
@@ -389,8 +365,6 @@ bool TaskDatabase::markTaskCompleted(int taskId, bool isCompleted)
     if (!success) {
         qCritical() << "标记任务失败：" << query.lastError().text();
     }
-
-    db.close();
     return success;
 }
 
@@ -409,9 +383,9 @@ QList<Task> TaskDatabase::getReminderTasks()
 
     QSqlQuery query(db);
     query.prepare(R"(
-        SELECT id, title, description, category_id, priority, deadline, is_completed, create_time
+        SELECT id, title, description, category_id, priority, deadline, completed, create_time
         FROM tasks
-        WHERE is_completed = 0 AND deadline BETWEEN :now AND :future
+        WHERE completed = 0 AND deadline BETWEEN :now AND :future
     )");
     query.bindValue(":now", now);
     query.bindValue(":future", future);
@@ -432,8 +406,6 @@ QList<Task> TaskDatabase::getReminderTasks()
     } else {
         qCritical() << "查询提醒任务失败：" << query.lastError().text();
     }
-
-    db.close();
     return reminderTasks;
 }
 
@@ -449,7 +421,6 @@ int TaskDatabase::getTotalTaskCount()
     QSqlQuery query("SELECT COUNT(*) FROM tasks", db);
     int count = query.next() ? query.value(0).toInt() : 0;
 
-    db.close();
     return count;
 }
 
@@ -460,11 +431,8 @@ int TaskDatabase::getCompletedTaskCount()
         qWarning() << "统计已完成任务失败：数据库未打开";
         return 0;
     }
-
-    QSqlQuery query("SELECT COUNT(*) FROM tasks WHERE is_completed = 1", db);
+    QSqlQuery query("SELECT COUNT(*) FROM tasks WHERE completed = 1", db);
     int count = query.next() ? query.value(0).toInt() : 0;
-
-    db.close();
     return count;
 }
 
@@ -496,8 +464,6 @@ QMap<QString, int> TaskDatabase::getTaskCountByCategory()
     } else {
         qCritical() << "按分类统计失败：" << query.lastError().text();
     }
-
-    db.close();
     return countMap;
 }
 
@@ -523,8 +489,6 @@ QMap<TaskPriority, int> TaskDatabase::getTaskCountByPriority()
     } else {
         qCritical() << "按优先级统计失败：" << query.lastError().text();
     }
-
-    db.close();
     return countMap;
 }
 

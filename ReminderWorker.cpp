@@ -15,12 +15,11 @@ void ReminderWorker::run()
             emit reminderTriggered(reminderTasks);
         }
 
-        // 每分钟检查一次
         QThread::sleep(60);
     }
 }
 
-// 停止线程的方法
+// 停止线程
 void ReminderWorker::stop()
 {
     m_running = false;
@@ -30,6 +29,6 @@ ReminderWorker::~ReminderWorker()
 {
     if (isRunning()) {
         stop();
-        wait();  // 等待线程结束
+        wait();
     }
 }

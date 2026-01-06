@@ -25,7 +25,7 @@ struct Task {
     int categoryId;
     TaskPriority priority;
     QDateTime deadline;
-    bool isCompleted;
+    bool isCompleted = false;
     QDateTime createTime;
 };
 
